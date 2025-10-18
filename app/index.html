@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>邮件查看器管理系统</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- 配置文件 - 自动注入环境变量 -->
+    <script src="config.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- 顶部导航 -->
+        <nav class="navbar">
+            <div class="nav-brand">📧 邮件查看器管理系统</div>
+            <div class="nav-menu">
+                <button class="nav-link active" data-page="admin">管理控制台</button>
+                <button class="nav-link" data-page="viewer">邮件查看</button>
+                <button class="btn-logout" id="btnLogout" style="display:none;">退出登录</button>
+            </div>
+        </nav>
+
+        <!-- 登录页面 -->
+        <div class="page" id="loginPage">
+            <div class="login-container">
+                <h1>🔐 管理员登录</h1>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="apiUrl">API 地址:</label>
+                        <input type="text" id="apiUrl" value="http://localhost:8787" required>
+                        <small>Worker API 地址</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="adminPassword">管理员密码:</label>
+                        <input type="password" id="adminPassword" required>
+                    </div>
+
+                    <button type="submit" class="btn-primary">登录</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 管理控制台页面 -->
+        <div class="page" id="adminPage" style="display:none;">
+            <div class="container">
+                <h2>创建分发链接</h2>
+                <form id="createTokenForm" class="create-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="mailWorkerUrl">邮箱 Worker 地址:</label>
+                            <input type="text" id="mailWorkerUrl" placeholder="https://mail.example.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="apiType">API 类型:</label>
+                            <select id="apiType" required>
+                                <option value="user">用户 API (JWT)</option>
+                                <option value="user_api">用户 API (Admin密码)</option>
+                                <option value="admin">管理员 API</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" id="jwtTokenGroup">
+                            <label for="jwtToken">JWT 令牌:</label>
+                            <input type="password" id="jwtToken">
+                        </div>
+                        <div class="form-group" id="mailAdminAuthGroup" style="display:none;">
+                            <label for="mailAdminAuth">邮箱 Admin 密码:</label>
+                            <input type="password" id="mailAdminAuth">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="emailAddress">指定邮箱地址:</label>
+                            <input type="email" id="emailAddress" placeholder="user@example.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="description">描述:</label>
+                            <input type="text" id="description" placeholder="例如：给张三查看">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="expiresAt">过期时间（可选）:</label>
+                            <input type="datetime-local" id="expiresAt">
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-primary">创建分发链接</button>
+                </form>
+
+                <div class="divider"></div>
+
+                <div class="section-header">
+                    <h2>分发链接列表</h2>
+                    <button class="btn-secondary" id="btnRefreshTokens">刷新</button>
+                </div>
+
+                <div class="tokens-list" id="tokensList">
+                    <div class="loading">正在加载...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 邮件查看页面 -->
+        <div class="page" id="viewerPage" style="display:none;">
+            <div class="container">
+                <div class="viewer-header">
+                    <h2>邮件查看</h2>
+                    <div class="viewer-token-input">
+                        <input type="text" id="viewerTokenInput" placeholder="输入 Token ID 查看邮件">
+                        <button class="btn-primary" id="btnLoadViewer">加载</button>
+                    </div>
+                </div>
+
+                <div id="viewerContent" class="viewer-content">
+                    <div class="viewer-placeholder">
+                        <p>请输入 Token ID 或从管理控制台点击"查看邮件"按钮</p>
+                        <p class="hint">分发链接格式: /view/TOKEN_ID</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 邮件详情模态框 -->
+        <div class="modal" id="mailModal">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <div class="mail-detail" id="mailDetail"></div>
+            </div>
+        </div>
+
+        <!-- Token 详情模态框 -->
+        <div class="modal" id="tokenModal">
+            <div class="modal-content">
+                <span class="close-token">&times;</span>
+                <div id="tokenDetail"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

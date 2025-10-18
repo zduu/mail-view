@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+*.log
+.env
+.dev.vars
+.wrangler/
+dist/
+logs/
+.local_pids
+*.backup
+viewer/css/
+test.py
