@@ -559,6 +559,11 @@ class MailApp {
             }
         }
 
+        // 基础清洗：移除脚本/无用meta/外链样式，修复常见邮件HTML，降低渲染异常
+        if (htmlContent) {
+            htmlContent = this.sanitizeEmailHtml(htmlContent);
+        }
+
         detailDiv.innerHTML = `
             <h3>${this.escapeHtml(subject || '(无主题)')}</h3>
             <div class="mail-detail-info">
@@ -631,6 +636,62 @@ class MailApp {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // 轻量级邮件 HTML 清洗，避免XSS/错位/控制台报错
+    sanitizeEmailHtml(html) {
+        try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+
+            // 移除脚本与潜在危险元素
+            doc.querySelectorAll('script, iframe[src^="javascript:"], object, embed').forEach(el => el.remove());
+
+            // 移除 meta viewport 等在嵌入场景下无效且可能报错的标签
+            doc.querySelectorAll('meta[name="viewport"], meta[http-equiv], base').forEach(el => el.remove());
+
+            // 移除外链样式，避免加载失败或污染样式；保留内联 style
+            doc.querySelectorAll('link[rel="stylesheet"], link[rel="preload"], link[rel="preconnect"]').forEach(el => el.remove());
+
+            // 清理内联样式中的 @font-face，减少外部字体加载报错
+            doc.querySelectorAll('style').forEach(style => {
+                try {
+                    style.textContent = style.textContent.replace(/@font-face[\s\S]*?\}/gi, '');
+                } catch {}
+            });
+
+            // 移除 on* 事件属性，降低 XSS 风险
+            doc.querySelectorAll('*').forEach(el => {
+                [...el.attributes].forEach(attr => {
+                    if (/^on/i.test(attr.name)) {
+                        el.removeAttribute(attr.name);
+                    }
+                });
+            });
+
+            // 处理图片：懒加载、无 referrer，避免追踪泄露；精简大体积 srcset
+            doc.querySelectorAll('img').forEach(img => {
+                img.setAttribute('loading', 'lazy');
+                img.setAttribute('decoding', 'async');
+                img.setAttribute('referrerpolicy', 'no-referrer');
+                if (img.hasAttribute('srcset')) img.removeAttribute('srcset');
+                // 避免图片过宽撑破
+                img.style.maxWidth = img.style.maxWidth || '100%';
+                img.style.height = img.style.height || 'auto';
+            });
+
+            // 链接新窗口打开并加安全属性
+            doc.querySelectorAll('a[href]').forEach(a => {
+                a.setAttribute('target', '_blank');
+                a.setAttribute('rel', 'noopener noreferrer nofollow');
+            });
+
+            // 仅注入 body 内容，避免嵌套 html/head 导致的奇怪渲染
+            return doc.body ? doc.body.innerHTML : html;
+        } catch (e) {
+            console.warn('sanitizeEmailHtml failed:', e);
+            return html;
+        }
     }
 
     decodeMailContent(content) {

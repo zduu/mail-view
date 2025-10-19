@@ -164,7 +164,7 @@ body {
 
 /* 模态框 */
 .modal { display: none; position: fixed; inset: 0; z-index: 1000; background-color: rgba(17,24,39,0.45); backdrop-filter: blur(2px); animation: fadeIn .2s ease-in; }
-.modal-content { background-color: #fff; margin: 3% auto; padding: 0; border-radius: var(--radius); width: 90%; max-width: 920px; max-height: 92vh; overflow: hidden; box-shadow: var(--shadow-md); animation: slideIn .3s ease-out; border: 1px solid var(--border); }
+.modal-content { background-color: #fff; margin: 3% auto; padding: 0; border-radius: var(--radius); width: 90%; max-width: 920px; max-height: 92vh; overflow: auto; -webkit-overflow-scrolling: touch; box-shadow: var(--shadow-md); animation: slideIn .3s ease-out; border: 1px solid var(--border); }
 .close, .close-token { color: #94a3b8; float: right; font-size: 28px; font-weight: bold; padding: 18px 22px 0 0; cursor: pointer; transition: color .2s; }
 .close:hover, .close:focus, .close-token:hover, .close-token:focus { color: #475569; }
 
@@ -185,6 +185,12 @@ body {
 .mail-detail-value { color: var(--text); font-weight: 600; }
 .mail-detail-content h4 { margin: 18px 0 10px; color: var(--text); font-size: 14px; }
 .mail-html-content { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px; background: #fff; }
+/* 让邮件内元素更适配容器，避免溢出造成不可滚动/错位 */
+.mail-html-content img { max-width: 100% !important; height: auto !important; }
+.mail-html-content iframe, .mail-html-content video, .mail-html-content canvas { max-width: 100% !important; }
+.mail-html-content table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.mail-html-content pre, .mail-html-content code { white-space: pre-wrap; word-break: break-word; }
+.mail-html-content a { word-break: break-all; }
 .mail-text-content { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--text); line-height: 1.6; }
 
 /* 状态提示 */
@@ -211,7 +217,7 @@ body {
   .viewer-token-input input { width: 100%; }
   .search-bar { flex-direction: column; }
   .mail-item-header { flex-direction: column; gap: 4px; }
-  .modal-content { width: 95%; margin: 5% auto; max-height: 95vh; }
+  .modal-content { width: 95%; margin: 5% auto; max-height: 95vh; overflow: auto; -webkit-overflow-scrolling: touch; }
   .mail-detail { padding: 20px; }
   .pagination { flex-wrap: wrap; gap: 12px; }
 }
