@@ -525,38 +525,23 @@ class MailApp {
         let from = '';
         let to = mail.address || ''; // address 是收件人邮箱
 
-        // 从 raw 数据中提取邮件头
+        // 从 raw 数据中提取顶层头部（支持折叠行）
         if (mail.raw) {
-            const subjectMatch = mail.raw.match(/^Subject:\s*(.+?)$/im);
-            if (subjectMatch) {
-                subject = this.decodeMailHeader(subjectMatch[1]);
-            }
-
-            const fromMatch = mail.raw.match(/^From:\s*(.+?)$/im);
-            if (fromMatch) {
-                from = this.decodeMailHeader(fromMatch[1]);
-            }
-
-            const toMatch = mail.raw.match(/^To:\s*(.+?)$/im);
-            if (toMatch) {
-                to = this.decodeMailHeader(toMatch[1]);
-            }
+            const top = this.splitHeaderBody(mail.raw);
+            const subjVal = this.getHeaderValue(top.headers, 'Subject');
+            const fromVal = this.getHeaderValue(top.headers, 'From');
+            const toVal = this.getHeaderValue(top.headers, 'To');
+            if (subjVal) subject = this.decodeMailHeader(subjVal);
+            if (fromVal) from = this.decodeMailHeader(fromVal);
+            if (toVal) to = this.decodeMailHeader(toVal);
         }
 
         let htmlContent = '';
         let textContent = '';
 
         if (mail.raw) {
-            // 更好的内容提取正则
-            const htmlMatch = mail.raw.match(/Content-Type:\s*text\/html[^\r\n]*[\r\n]+(?:Content-[^\r\n]+[\r\n]+)*[\r\n]+([\s\S]*?)(?=--[\w-]+|$)/i);
-            const textMatch = mail.raw.match(/Content-Type:\s*text\/plain[^\r\n]*[\r\n]+(?:Content-[^\r\n]+[\r\n]+)*[\r\n]+([\s\S]*?)(?=--[\w-]+|Content-Type:|$)/i);
-
-            if (htmlMatch) {
-                htmlContent = this.decodeMailContent(htmlMatch[1]);
-            }
-            if (textMatch) {
-                textContent = this.decodeMailContent(textMatch[1]);
-            }
+            htmlContent = this.extractAndDecodeMailPart(mail.raw, 'html');
+            textContent = this.extractAndDecodeMailPart(mail.raw, 'plain');
         }
 
         // 基础清洗：移除脚本/无用meta/外链样式，修复常见邮件HTML，降低渲染异常
@@ -694,32 +679,199 @@ class MailApp {
         }
     }
 
+    // 将字节转换为指定字符集的字符串（默认 utf-8）
+    bytesToString(bytes, charset = 'utf-8') {
+        try {
+            // 规范化常见别名
+            const label = (charset || 'utf-8').toLowerCase().replace(/_/g, '-');
+            let enc = label;
+            if (label === 'utf8') enc = 'utf-8';
+            if (label === 'us-ascii' || label === 'ascii') enc = 'utf-8';
+            if (label === 'gb2312') enc = 'gbk'; // 浏览器里 gb2312 映射到 gbk
+            const decoder = new TextDecoder(enc, { fatal: false });
+            return decoder.decode(bytes);
+        } catch {
+            // 回退：按 utf-8 解码
+            try {
+                return new TextDecoder('utf-8').decode(bytes);
+            } catch {
+                // 最后回退：直接从 charCode 构造（可能出现乱码）
+                return Array.from(bytes).map(c => String.fromCharCode(c)).join('');
+            }
+        }
+    }
+
+    // Base64 字符串转 Uint8Array
+    base64ToBytes(b64) {
+        const clean = (b64 || '').replace(/\s+/g, '');
+        try {
+            const bin = atob(clean);
+            const arr = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i) & 0xff;
+            return arr;
+        } catch {
+            return new Uint8Array();
+        }
+    }
+
+    // Quoted-Printable 解码为字节
+    qpToBytes(qp) {
+        if (!qp) return new Uint8Array();
+        // 软换行 "=\r?\n" 需要移除
+        const s = qp.replace(/=\r?\n/g, '');
+        const out = [];
+        for (let i = 0; i < s.length; i++) {
+            const ch = s[i];
+            if (ch === '=' && i + 2 < s.length && /[0-9A-Fa-f]{2}/.test(s.slice(i + 1, i + 3))) {
+                out.push(parseInt(s.slice(i + 1, i + 3), 16));
+                i += 2;
+            } else {
+                out.push(s.charCodeAt(i) & 0xff);
+            }
+        }
+        return new Uint8Array(out);
+    }
+
+    // 分离头与体：返回 { headers, body, delimLen }
+    splitHeaderBody(raw) {
+        const idxCR = raw.indexOf('\r\n\r\n');
+        if (idxCR !== -1) {
+            return { headers: raw.substring(0, idxCR), body: raw.substring(idxCR + 4), delimLen: 4 };
+        }
+        const idxLF = raw.indexOf('\n\n');
+        if (idxLF !== -1) {
+            return { headers: raw.substring(0, idxLF), body: raw.substring(idxLF + 2), delimLen: 2 };
+        }
+        return { headers: raw, body: '', delimLen: 0 };
+    }
+
+    // 获取指定头字段（合并折叠行）
+    getHeaderValue(headersRaw, name) {
+        if (!headersRaw) return '';
+        const unfolded = headersRaw.replace(/\r?\n[\t ]+/g, ' ');
+        const re = new RegExp('^' + name.replace(/[-/\\^$*+?.()|[\]{}]/g, r => '\\' + r) + ':[\t ]*(.+)$', 'im');
+        const m = unfolded.match(re);
+        return m ? m[1].trim() : '';
+    }
+
+    // 解析 Content-Type 值与参数
+    parseContentType(value) {
+        const v = (value || '').trim();
+        const [typePart, ...paramParts] = v.split(';');
+        const [type, sub] = (typePart || '').trim().toLowerCase().split('/');
+        const params = {};
+        for (const p of paramParts) {
+            const m = p.trim().match(/([\w\-]+)\s*=\s*("([^"]*)"|[^;]+)/);
+            if (m) params[m[1].toLowerCase()] = (m[3] ?? m[2]).replace(/^"|"$/g, '');
+        }
+        return { type: type || '', subtype: sub || '', params };
+    }
+
+    // 查找下一处边界位置（在 body 内）
+    findNextBoundary(body, boundary, fromIndex) {
+        const token = `--${boundary}`;
+        // 边界通常独占一行，以 CRLF 或 LF 结尾
+        let i = body.indexOf('\r\n' + token, fromIndex);
+        if (i === -1) i = body.indexOf('\n' + token, fromIndex);
+        if (i === -1 && fromIndex === 0 && body.startsWith(token)) return 0; // 兼容无前置换行
+        return i;
+    }
+
+    // 解析并解码指定 MIME 文本部件（text/plain 或 text/html）
+    extractAndDecodeMailPart(raw, desiredSubtype) {
+        if (!raw) return '';
+
+        // 先切分顶层头/体，避免把顶层头部当作内容
+        const top = this.splitHeaderBody(raw);
+        const ctVal = this.getHeaderValue(top.headers, 'Content-Type');
+        const cteVal = this.getHeaderValue(top.headers, 'Content-Transfer-Encoding');
+        const ct = this.parseContentType(ctVal);
+
+        // 单部件邮件：直接用顶层头解析
+        if (ct.type !== 'multipart') {
+            if (ct.type === 'text' && ct.subtype === desiredSubtype) {
+                const charset = ct.params.charset || 'utf-8';
+                let bytes;
+                const enc = (cteVal || '').toLowerCase();
+                if (enc === 'base64') bytes = this.base64ToBytes(top.body);
+                else if (enc === 'quoted-printable') bytes = this.qpToBytes(top.body);
+                else bytes = new Uint8Array(Array.from(top.body).map(c => c.charCodeAt(0) & 0xff));
+                return this.bytesToString(bytes, charset).trim();
+            }
+            return '';
+        }
+
+        // 多部件：扫描 boundary，定位 text/<desiredSubtype> 部分
+        const boundary = ct.params.boundary;
+        if (!boundary) return '';
+
+        const body = top.body;
+        // 在 body 中查找包含 Content-Type: text/desiredSubtype 的部分头
+        const ctRe = new RegExp(`Content-Type:\\s*text/${desiredSubtype}[^\\r\\n]*`, 'i');
+        const ctIdx = body.search(ctRe);
+        if (ctIdx === -1) return '';
+
+        // 找到该部分头结束（空行）
+        let headersEnd = body.indexOf('\r\n\r\n', ctIdx);
+        let delimLen = 4;
+        if (headersEnd === -1) {
+            headersEnd = body.indexOf('\n\n', ctIdx);
+            delimLen = 2;
+        }
+        if (headersEnd === -1) return '';
+
+        const partHeaders = body.substring(ctIdx, headersEnd);
+        const partBodyStart = headersEnd + delimLen;
+
+        // 该部分结束于下一个外层 boundary
+        const nextBoundary = this.findNextBoundary(body, boundary, partBodyStart);
+        const partBody = nextBoundary !== -1 ? body.substring(partBodyStart, nextBoundary) : body.substring(partBodyStart);
+
+        const partCTE = this.getHeaderValue(partHeaders, 'Content-Transfer-Encoding');
+        const partCTVal = this.getHeaderValue(partHeaders, 'Content-Type');
+        const partCT = this.parseContentType(partCTVal);
+        const charset = partCT.params.charset || 'utf-8';
+
+        let bytes;
+        const enc = (partCTE || '').toLowerCase();
+        if (enc === 'base64') bytes = this.base64ToBytes(partBody);
+        else if (enc === 'quoted-printable') bytes = this.qpToBytes(partBody);
+        else bytes = new Uint8Array(Array.from(partBody).map(c => c.charCodeAt(0) & 0xff));
+        return this.bytesToString(bytes, charset).trim();
+    }
+
+    // 保持旧接口，但仅用于兜底（不再用于主要内容解码）
     decodeMailContent(content) {
-        return content.replace(/=\r?\n/g, '').replace(/=([0-9A-F]{2})/gi, (m, h) =>
-            String.fromCharCode(parseInt(h, 16))
-        ).trim();
+        // 历史实现：按 QP 直接转字符（可能导致乱码）
+        return content
+            .replace(/=\r?\n/g, '')
+            .replace(/=([0-9A-F]{2})/gi, (m, h) => String.fromCharCode(parseInt(h, 16)))
+            .trim();
     }
 
     decodeMailHeader(header) {
         if (!header) return '';
 
+        // 合并折叠行：下一行以空格或制表符开头
+        header = header.replace(/\r?\n[\t ]+/g, ' ');
+
         // 解码 MIME 编码的邮件头 (=?charset?encoding?content?=)
         return header.replace(/=\?([^?]+)\?([BQbq])\?([^?]+)\?=/g, (match, charset, encoding, content) => {
             try {
-                if (encoding.toUpperCase() === 'B') {
-                    // Base64 解码
-                    return decodeURIComponent(escape(atob(content)));
-                } else if (encoding.toUpperCase() === 'Q') {
-                    // Quoted-Printable 解码
-                    return content
-                        .replace(/_/g, ' ')
-                        .replace(/=([0-9A-F]{2})/gi, (m, h) => String.fromCharCode(parseInt(h, 16)));
+                const enc = (encoding || 'B').toUpperCase();
+                let bytes = new Uint8Array();
+                if (enc === 'B') {
+                    bytes = this.base64ToBytes(content);
+                } else if (enc === 'Q') {
+                    // QP in header uses '_' for space
+                    content = content.replace(/_/g, ' ');
+                    bytes = this.qpToBytes(content);
                 }
+                return this.bytesToString(bytes, charset);
             } catch (e) {
                 console.error('解码邮件头失败:', e);
                 return match;
             }
-            return match;
         }).trim();
     }
 }
