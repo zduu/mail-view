@@ -140,9 +140,13 @@ async function handleViewerAPI(request, env, path) {
       return jsonResponse({ error: 'Token 已过期' }, 403);
     }
 
-    // 代理请求到邮箱 Worker
-    const mails = await proxyMailRequest(config, url);
-    return jsonResponse({ success: true, results: mails });
+    try {
+      // 代理请求到邮箱 Worker
+      const mails = await proxyMailRequest(config, url);
+      return jsonResponse({ success: true, results: mails });
+    } catch (e) {
+      return jsonResponse({ error: e.message || '代理请求失败' }, 400);
+    }
   }
 
   return jsonResponse({ error: '未找到的查看端路径' }, 404);
@@ -276,8 +280,12 @@ async function proxyMailRequest(config, url) {
     headers['x-admin-auth'] = adminAuth;
   }
 
+  // 规范化邮箱 Worker 基础地址
+  const baseOrigin = normalizeBaseUrl(mailWorkerUrl);
+  const target = new URL(`${endpoint}?${params.toString()}`, baseOrigin);
+
   // 发起请求
-  const response = await fetch(`${mailWorkerUrl}${endpoint}?${params.toString()}`, {
+  const response = await fetch(target.toString(), {
     method: 'GET',
     headers
   });
@@ -288,6 +296,21 @@ async function proxyMailRequest(config, url) {
 
   const data = await response.json();
   return data.results || [];
+}
+
+function normalizeBaseUrl(input) {
+  if (!input || typeof input !== 'string') {
+    throw new Error('邮箱 Worker 地址缺失');
+  }
+  let s = input.trim();
+  if (s.startsWith('//')) s = 'https:' + s;
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+  try {
+    const u = new URL(s);
+    return u.origin; // 仅保留协议+主机+端口
+  } catch {
+    throw new Error('邮箱 Worker 地址无效，请填写完整的 https:// 域名');
+  }
 }
 
 function generateToken() {

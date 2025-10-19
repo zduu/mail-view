@@ -78,6 +78,11 @@ ifconfig | grep "inet " | grep -v 127.0.0.1
 - KV Bindings：
   - 绑定一个 KV 命名空间到 `MAIL_TOKENS`（用于存储分发 Token）
 
+部署后如创建分发链接失败或查看邮件报错，请确认：
+- 已绑定 `MAIL_TOKENS`（Functions → KV Bindings）
+- 已设置 `ADMIN_PASSWORD`（Environment variables & Secrets）
+- 创建分发链接时“邮箱 Worker 地址”为完整的 `https://` 开头的域名（示例：`https://mail.example.workers.dev`），不要使用本地地址
+
 完成以上配置后点击 Deploy 即可。前端静态资源和 API（/admin/*、/viewer/*）都由同一个 Pages 站点提供。
 
 #### 3) 自动化

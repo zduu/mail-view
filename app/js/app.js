@@ -173,8 +173,14 @@ class MailApp {
     }
 
     async createToken() {
+        // 规范化邮箱 Worker 地址，避免生产报错
+        let mailWorkerUrl = document.getElementById('mailWorkerUrl').value.trim();
+        if (mailWorkerUrl.startsWith('//')) mailWorkerUrl = 'https:' + mailWorkerUrl;
+        if (!/^https?:\/\//i.test(mailWorkerUrl)) mailWorkerUrl = 'https://' + mailWorkerUrl;
+        mailWorkerUrl = mailWorkerUrl.replace(/\/$/, '');
+
         const formData = {
-            mailWorkerUrl: document.getElementById('mailWorkerUrl').value.trim(),
+            mailWorkerUrl,
             apiType: document.getElementById('apiType').value,
             jwtToken: document.getElementById('jwtToken').value.trim(),
             adminAuth: document.getElementById('mailAdminAuth').value.trim(),
