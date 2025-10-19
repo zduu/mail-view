@@ -73,6 +73,7 @@ class MailApp {
         document.querySelector('.close-token').addEventListener('click', () => {
             document.getElementById('tokenModal').style.display = 'none';
         });
+
     }
 
     handleRoute() {
@@ -97,16 +98,16 @@ class MailApp {
     }
 
     async login() {
-        const apiUrl = document.getElementById('apiUrl').value.trim();
         const password = document.getElementById('adminPassword').value;
 
+        const apiUrl = window.APP_CONFIG.apiUrl; // 单一部署默认同源
         this.apiUrl = apiUrl;
         this.adminPassword = password;
 
         try {
             const response = await this.apiRequest('/admin/tokens', 'GET');
             if (response.success) {
-                localStorage.setItem('apiUrl', apiUrl);
+                // 单一部署无需持久化 apiUrl；保持以同源为准
                 localStorage.setItem('adminPassword', password);
                 window.APP_CONFIG.apiUrl = apiUrl;
                 this.showApp();

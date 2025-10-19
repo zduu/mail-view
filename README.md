@@ -13,30 +13,28 @@
 
 ## 🚀 快速开始
 
-### 本地测试
-
-#### 1. 启动 Worker API（终端1）
-
-```bash
-cd worker
-echo "ADMIN_PASSWORD=test123456" > .dev.vars
-wrangler dev --local --port 8787
-```
-
-#### 2. 启动管理界面（终端2）
+### 本地测试（单一 Pages）
 
 ```bash
 cd app
-python3 -m http.server 8080
+echo "ADMIN_PASSWORD=test123456" > .dev.vars
+# 首次运行会使用 app/wrangler.toml（含 KV 绑定与 compatibility_date）
+wrangler pages dev .
 ```
 
-#### 3. 访问系统
+终端会显示本地访问地址（如 http://127.0.0.1:8788）。
 
-浏览器打开：`http://localhost:8080`
+默认情况下，前端会使用同源地址作为 API（无需单独启动后端）。
+如果看到 “KV 绑定缺失” 错误，请确认 `app/wrangler.toml` 中存在：
 
-**登录信息**：
-- API 地址：`http://localhost:8787`
-- 管理员密码：`test123456`
+```
+[[kv_namespaces]]
+binding = "MAIL_TOKENS"
+id = "MAIL_TOKENS_DEV"
+preview_id = "MAIL_TOKENS_DEV"
+```
+
+登录时直接输入管理员密码：`test123456`。
 
 #### 局域网访问
 
@@ -48,91 +46,90 @@ ifconfig | grep "inet " | grep -v 127.0.0.1
 
 其他设备访问：`http://192.168.1.100:8080`
 
-**注意**：需在 `app/index.html` 中修改 `window.APP_CONFIG.apiUrl` 为 `http://192.168.1.100:8787`
+**注意**：统一部署后，默认 API 为同源，无需修改 `apiUrl`。
 
 ---
 
-### 生产部署
+### 生产部署（已改为单一 Pages 部署）
 
-#### 1. 部署 Worker API
+现在项目已统一为「一个 Cloudflare Pages 即可完成前后端部署」。
+
+#### 1) 在 Cloudflare Pages 创建项目（Git 集成）
+
+1. 推送代码到 GitHub（或你使用的 Git 平台）
+2. Dashboard: Workers & Pages → Create application → Pages → Connect to Git
+3. 选择仓库后配置：
+   - Project name: 任意，例如 `mail-app`
+   - Production branch: `main`
+   - Framework preset: `None`
+   - Build command: 留空
+   - Build output directory: 留空
+   - Root directory: `app`
+
+#### 2) 绑定环境变量与 KV
+
+在 Pages 项目中配置：Settings → Environment variables & Secrets：
+
+- Secrets：
+  - `ADMIN_PASSWORD`（必填）：管理员密码（仅管理端使用）
+- Variables（可选）：
+  - `APP_URL`：你的 Pages 访问地址（未填写则自动使用当前域名）
+  - `API_URL`：API 地址（未填写则自动使用同源地址，推荐留空以统一部署）
+- KV Bindings：
+  - 绑定一个 KV 命名空间到 `MAIL_TOKENS`（用于存储分发 Token）
+
+完成以上配置后点击 Deploy 即可。前端静态资源和 API（/admin/*、/viewer/*）都由同一个 Pages 站点提供。
+
+#### 3) 自动化
+
+- ✅ 每次推送到 `main` 分支自动部署
+- ✅ 预览环境自动生成
+- ✅ 可在 Dashboard 查看日志与回滚
+
+**工作原理：**
+- `app/_worker.js` 同时提供 API 和静态资源分发
+- `config.js` 通过 `_worker.js` 动态注入，默认同源（无需跨域）
+- 所有后端逻辑（原 `worker/index.js`）已合并进 `_worker.js`
+
+---
+
+### 本地测试（单一 Workers）
 
 ```bash
 cd worker
+echo "ADMIN_PASSWORD=test123456" > .dev.vars
+wrangler dev --local --port 8787
+```
 
-# 创建 KV 命名空间
+打开终端显示的地址（如 http://127.0.0.1:8787），前端与 API 同源提供。
+
+### 生产部署（单一 Workers 部署）
+
+1) 准备 KV（仅一次）：
+```bash
+cd worker
 wrangler kv:namespace create "MAIL_TOKENS"
-# 记录返回的 KV ID，填入 wrangler.toml
+# 将返回的 id 写入 wrangler.toml 的 kv_namespaces.id
+```
 
-# 设置管理员密码
+2) 设置 Secret：
+```bash
 wrangler secret put ADMIN_PASSWORD
+```
 
-# 部署
+3) 部署：
+```bash
 wrangler deploy
 ```
 
-#### 2. 部署管理界面
-
-**Cloudflare Pages GitHub 集成部署（推荐）**
-
-✨ **零代码修改，自动部署** - 无需手动修改配置文件，通过环境变量自动注入
-
-1. **推送代码到 GitHub**
-   ```bash
-   # 初始化 git 仓库（如果还没有）
-   git init
-   git add .
-   git commit -m "Initial commit"
-
-   # 创建 GitHub 仓库并推送
-   git remote add origin https://github.com/zduu/mail-view.git
-   git branch -M main
-   git push -u origin main
-   ```
-
-2. **在 Cloudflare Pages 创建项目**
-   - 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)
-   - 进入 **Workers & Pages** > **Create application** > **Pages** > **Connect to Git**
-   - 选择 GitHub 账号并授权
-   - 选择你的仓库
-
-3. **配置构建设置**
-   - **Project name**: `mail-app`（或自定义名称）
-   - **Production branch**: `main`
-   - **Framework preset**: `None`
-   - **Build command**: 留空
-   - **Build output directory**: 留空（直接部署 app 目录）
-   - **Root directory**: `app`
-
-4. **配置环境变量（必需）**
-
-   在 **Settings** > **Environment variables** 中添加：
-
-   | 变量名 | 值 | 说明 |
-   |--------|---|------|
-   | `API_URL` | `https://your-worker.workers.dev` | 你的 Worker API 地址 |
-   | `APP_URL` | `https://mail-app.pages.dev` | 你的 Pages 应用地址 |
-
-   **重要提示**：
-   - `API_URL` 填写步骤1中部署的 Worker 地址
-   - `APP_URL` 首次部署时可先留空，部署完成后获取实际地址再填入并重新部署
-
-5. **完成部署**
-   - 点击 **Save and Deploy**
-   - 等待部署完成（约30秒-2分钟）
-   - 获取 Pages URL（如 `https://mail-app.pages.dev`）
-   - 如果步骤4中 `APP_URL` 为空，现在回填实际地址并重新部署
-
-6. **自动部署**
-   - ✅ 每次推送到 `main` 分支自动触发部署
-   - ✅ Pull Request 自动生成预览环境
-   - ✅ 可在 Dashboard 查看部署历史和日志
-   - ✅ 支持版本回滚
+部署后访问 `*.workers.dev` 即可使用。此 Workers 同时提供：
+- 静态页面（目录绑定到 ../app）
+- API 路由：`/admin/*`、`/viewer/*`
 
 **工作原理：**
-- `app/_worker.js` 在运行时动态生成 `config.js`
-- 环境变量 `API_URL` 和 `APP_URL` 自动注入到配置中
-- 本地开发时自动使用 localhost 配置
-- 无需修改任何代码即可部署到生产环境
+- `worker/index.js` 集成静态资源分发与 API
+- `wrangler.toml` 使用 `assets.directory = "../app"` 绑定前端目录
+- `/config.js` 由 Worker 动态注入，默认同源（无需跨域）
 
 ## 📖 使用说明
 
@@ -174,8 +171,8 @@ https://your-app.pages.dev/#/view/abc123xyz...
 ## 🏗️ 系统架构
 
 ```
-统一管理界面 (app)     Worker API + KV      邮箱 Worker
-http://localhost:8080 → :8787/admin/* → :8787/viewer/* → mail.workers.dev
+统一管理界面 (Pages)  Pages Functions(API) + KV      邮箱 Worker
+same origin (同源) →   /admin/* 与 /viewer/*   →     mail.workers.dev
                               ↓
                         存储 Token 配置
 ```

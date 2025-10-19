@@ -1,6 +1,10 @@
 name = "mail-viewer-api"
 main = "index.js"
 compatibility_date = "2024-01-01"
+workers_dev = true
+
+# 静态资源绑定（将 ../app 作为静态站点目录）
+assets = { binding = "ASSETS", directory = "../app" }
 
 # KV 命名空间绑定
 kv_namespaces = [

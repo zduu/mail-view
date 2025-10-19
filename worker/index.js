@@ -1,10 +1,7 @@
 /**
- * 邮件查看器分发管理 Worker
- *
- * 功能：
- * 1. 管理分发 Token 的 CRUD
- * 2. 验证 Token 并返回邮箱配置
- * 3. 代理邮件 API 请求
+ * 单一 Workers 部署脚本：
+ * - 同域提供静态页面与 API（/admin/*, /viewer/*）
+ * - 动态注入 /config.js（默认同源 API）
  */
 
 export default {
@@ -12,48 +9,36 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // CORS 处理
+    // CORS 预检
     if (request.method === 'OPTIONS') {
       return handleCORS();
     }
 
     try {
-      // 根路径 - API 信息
-      if (path === '/') {
-        return jsonResponse({
-          name: '邮件查看器分发管理 API',
-          version: '1.0.0',
-          status: 'running',
-          endpoints: {
-            admin: {
-              'POST /admin/tokens': '创建分发 Token',
-              'GET /admin/tokens': '获取所有 Token',
-              'PUT /admin/tokens/:id': '更新 Token',
-              'DELETE /admin/tokens/:id': '删除 Token'
-            },
-            viewer: {
-              'GET /viewer/config/:token': '获取 Token 配置',
-              'GET /viewer/mails/:token': '获取邮件列表'
-            }
-          },
-          authentication: {
-            admin: 'x-admin-password header',
-            viewer: 'Token in URL'
-          }
-        });
-      }
-
-      // 管理端 API（需要管理员密码）
+      // 后端 API
       if (path.startsWith('/admin/')) {
         return await handleAdminAPI(request, env, path);
       }
-
-      // 分发端 API（通过 Token）
       if (path.startsWith('/viewer/')) {
         return await handleViewerAPI(request, env, path);
       }
 
-      return jsonResponse({ error: '未找到的路径', availableEndpoints: ['/admin/*', '/viewer/*'] }, 404);
+      // 前端配置注入
+      if (path === '/config.js') {
+        const API_URL = env.API_URL || url.origin;
+        const APP_URL = env.APP_URL || url.origin;
+        const configContent = `// 自动配置（Workers）
+window.APP_CONFIG = { apiUrl: '${API_URL}', appUrl: '${APP_URL}' };`;
+        return new Response(configContent, {
+          headers: {
+            'Content-Type': 'application/javascript; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600'
+          }
+        });
+      }
+
+      // 静态资源（绑定 assets.directory = ../app）
+      return env.ASSETS.fetch(request);
     } catch (error) {
       console.error('Worker 错误:', error);
       return jsonResponse({ error: error.message, stack: error.stack }, 500);
@@ -65,13 +50,11 @@ export default {
  * 处理管理端 API
  */
 async function handleAdminAPI(request, env, path) {
-  // 验证管理员密码
+  // 验证管理员密码（Workers Secret: ADMIN_PASSWORD）
   const adminPassword = request.headers.get('x-admin-password');
   if (!adminPassword || adminPassword !== env.ADMIN_PASSWORD) {
     return jsonResponse({ error: '管理员认证失败' }, 401);
   }
-
-  const url = new URL(request.url);
 
   // 创建分发 Token
   if (path === '/admin/tokens' && request.method === 'POST') {
@@ -109,7 +92,6 @@ async function handleAdminAPI(request, env, path) {
  */
 async function handleViewerAPI(request, env, path) {
   const url = new URL(request.url);
-
   // 获取 Token 配置
   if (path.startsWith('/viewer/config/')) {
     const tokenId = path.split('/').pop();
@@ -185,7 +167,7 @@ async function createToken(env, data) {
 
   return {
     id: tokenId,
-    url: `${data.viewerUrl || 'https://your-viewer.pages.dev'}/view/${tokenId}`,
+    url: `${data.viewerUrl || 'https://your-viewer.pages.dev'}/#/view/${tokenId}`,
     emailAddress: data.emailAddress,
     createdAt: tokenData.createdAt
   };
